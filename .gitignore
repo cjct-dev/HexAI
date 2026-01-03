@@ -1,0 +1,13 @@
+# Gradle
+.gradle/
+build/
+!gradle-wrapper.jar
+
+# Android
+local.properties
+*.iml
+.idea/
+.DS_Store
+
+# Keystore (keep for builds but don't track password)
+# release.keystore
