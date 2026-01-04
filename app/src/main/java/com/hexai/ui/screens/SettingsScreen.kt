@@ -35,6 +35,7 @@ fun SettingsScreen(
     val modelSettings by viewModel.modelSettings.collectAsState()
     val pingLatency by viewModel.pingLatency.collectAsState()
     val supportsModelManagement by viewModel.supportsModelManagement.collectAsState()
+    val isSecureConnection by viewModel.isSecureConnection.collectAsState()
 
     Scaffold(
         modifier = modifier.background(DarkBackground),
@@ -79,6 +80,7 @@ fun SettingsScreen(
                 isConnecting = isConnecting,
                 connectionError = connectionError,
                 pingLatency = pingLatency,
+                isSecure = isSecureConnection,
                 onUrlChange = { viewModel.updateServerUrl(it) },
                 onApiKeyChange = { viewModel.updateApiKey(it) },
                 onConnect = { viewModel.connect() },
@@ -146,6 +148,7 @@ private fun ConnectionSection(
     isConnecting: Boolean,
     connectionError: String?,
     pingLatency: Long?,
+    isSecure: Boolean,
     onUrlChange: (String) -> Unit,
     onApiKeyChange: (String) -> Unit,
     onConnect: () -> Unit,
@@ -174,6 +177,30 @@ private fun ConnectionSection(
             Spacer(modifier = Modifier.weight(1f))
             if (isConnected) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Encryption status indicator
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = if (isSecure) HexGreen.copy(alpha = 0.15f) else WarningYellow.copy(alpha = 0.15f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (isSecure) Icons.Default.Lock else Icons.Default.LockOpen,
+                                contentDescription = if (isSecure) "Secure connection" else "Insecure connection",
+                                tint = if (isSecure) HexGreen else WarningYellow,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (isSecure) "HTTPS" else "HTTP",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isSecure) HexGreen else WarningYellow
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
                     // Ping latency
                     pingLatency?.let { latency ->
                         Surface(
@@ -187,7 +214,7 @@ private fun ConnectionSection(
                                 color = HexGrey200
                             )
                         }
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                     }
                     Surface(
                         shape = RoundedCornerShape(4.dp),
@@ -212,7 +239,7 @@ private fun ConnectionSection(
             value = serverUrl,
             onValueChange = onUrlChange,
             label = "Server URL",
-            placeholder = "http://localhost:8080",
+            placeholder = "192.168.1.100:8080",
             enabled = !isConnected,
             accentColor = NeonCyan,
             trailingIcon = {
@@ -223,6 +250,16 @@ private fun ConnectionSection(
                 )
             }
         )
+
+        // Helper text about auto-detection
+        if (!isConnected) {
+            Text(
+                text = "Protocol (https/http) auto-detected if not specified",
+                style = MaterialTheme.typography.labelSmall,
+                color = HexTextMuted,
+                modifier = Modifier.padding(start = 4.dp, top = 4.dp)
+            )
+        }
 
         Spacer(modifier = Modifier.height(12.dp))
 

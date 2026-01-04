@@ -35,6 +35,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val _pingLatency = MutableStateFlow<Long?>(null)
     val pingLatency: StateFlow<Long?> = _pingLatency.asStateFlow()
 
+    // Connection security (https vs http)
+    private val _isSecureConnection = MutableStateFlow(false)
+    val isSecureConnection: StateFlow<Boolean> = _isSecureConnection.asStateFlow()
+
     // Models list
     private val _availableModels = MutableStateFlow<List<ModelInfo>>(emptyList())
     val availableModels: StateFlow<List<ModelInfo>> = _availableModels.asStateFlow()
@@ -128,33 +132,40 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         _connectionError.value = null
 
         viewModelScope.launch {
-            val result = repository.testConnection(config.url, config.apiKey.takeIf { it.isNotBlank() })
-
-            result.fold(
-                onSuccess = {
-                    repository.configure(config.url, config.apiKey.takeIf { it.isNotBlank() })
-                    hexApiClient = HexApiClient(config.url, config.apiKey.takeIf { it.isNotBlank() })
-                    _isConnected.value = true
-                    _isConnecting.value = false
-
-                    // Save settings on successful connection
-                    settingsDataStore.saveServerConfig(config)
-
-                    fetchModels()
-                    startHealthCheck()
-                    checkModelManagementSupport()
-                },
-                onFailure = { e ->
-                    _connectionError.value = e.message ?: "Connection failed"
-                    _isConnecting.value = false
-                }
+            // Use auto-protocol detection (tries https first, then http)
+            val connectionResult = repository.testConnectionWithAutoProtocol(
+                config.url,
+                config.apiKey.takeIf { it.isNotBlank() }
             )
+
+            if (connectionResult.success) {
+                // Update config with the resolved URL (including protocol)
+                val resolvedUrl = connectionResult.url
+                _serverConfig.update { it.copy(url = resolvedUrl) }
+                _isSecureConnection.value = connectionResult.isSecure
+
+                repository.configure(resolvedUrl, config.apiKey.takeIf { it.isNotBlank() })
+                hexApiClient = HexApiClient(resolvedUrl, config.apiKey.takeIf { it.isNotBlank() })
+                _isConnected.value = true
+                _isConnecting.value = false
+
+                // Save settings on successful connection (with resolved URL)
+                settingsDataStore.saveServerConfig(_serverConfig.value)
+
+                fetchModels()
+                startHealthCheck()
+                checkModelManagementSupport()
+            } else {
+                _connectionError.value = connectionResult.error ?: "Connection failed"
+                _isConnecting.value = false
+            }
         }
     }
 
     fun disconnect() {
         healthCheckJob?.cancel()
         _isConnected.value = false
+        _isSecureConnection.value = false
         _availableModels.value = emptyList()
         _messages.value = emptyList()
         _pingLatency.value = null
