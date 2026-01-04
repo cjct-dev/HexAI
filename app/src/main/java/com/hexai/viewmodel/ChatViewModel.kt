@@ -117,6 +117,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectModel(modelId: String) {
         _serverConfig.update { it.copy(selectedModel = modelId) }
+        // Save to DataStore so it persists and doesn't get overwritten
         viewModelScope.launch {
             settingsDataStore.saveServerConfig(_serverConfig.value)
         }
