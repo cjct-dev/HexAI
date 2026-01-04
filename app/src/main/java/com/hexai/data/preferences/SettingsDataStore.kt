@@ -28,6 +28,7 @@ class SettingsDataStore(private val context: Context) {
         private val PRESENCE_PENALTY = floatPreferencesKey("presence_penalty")
         private val SYSTEM_PROMPT = stringPreferencesKey("system_prompt")
         private val REASONING_EFFORT = stringPreferencesKey("reasoning_effort")
+        private val USE_STREAMING = booleanPreferencesKey("use_streaming")
     }
 
     val serverConfig: Flow<ServerConfig> = context.dataStore.data.map { preferences ->
@@ -50,7 +51,8 @@ class SettingsDataStore(private val context: Context) {
                 ReasoningEffort.valueOf(preferences[REASONING_EFFORT] ?: "MEDIUM")
             } catch (e: IllegalArgumentException) {
                 ReasoningEffort.MEDIUM
-            }
+            },
+            useStreaming = preferences[USE_STREAMING] ?: true
         )
     }
 
@@ -71,6 +73,7 @@ class SettingsDataStore(private val context: Context) {
             preferences[PRESENCE_PENALTY] = settings.presencePenalty
             preferences[SYSTEM_PROMPT] = settings.systemPrompt
             preferences[REASONING_EFFORT] = settings.reasoningEffort.name
+            preferences[USE_STREAMING] = settings.useStreaming
         }
     }
 

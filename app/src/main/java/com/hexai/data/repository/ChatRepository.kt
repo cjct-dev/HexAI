@@ -66,6 +66,29 @@ class ChatRepository {
         return client.streamChatCompletion(request)
     }
 
+    suspend fun bulkChat(
+        model: String,
+        messages: List<ChatMessage>,
+        settings: ModelSettings
+    ): Result<ChatCompletionResponse> {
+        val client = streamingClient
+            ?: return Result.failure(IllegalStateException("API client not configured"))
+
+        val request = ChatCompletionRequest(
+            model = model,
+            messages = buildMessageList(messages, settings.systemPrompt),
+            stream = false,
+            temperature = settings.temperature,
+            maxTokens = settings.maxTokens.takeIf { it > 0 },
+            topP = settings.topP,
+            frequencyPenalty = settings.frequencyPenalty.takeIf { it != 0f },
+            presencePenalty = settings.presencePenalty.takeIf { it != 0f },
+            reasoningEffort = settings.reasoningEffort.value
+        )
+
+        return client.chatCompletion(request)
+    }
+
     private fun buildMessageList(
         messages: List<ChatMessage>,
         systemPrompt: String

@@ -4,9 +4,11 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
@@ -60,6 +62,9 @@ fun MarkdownText(
                 }
                 is ContentSegment.LatexInline -> {
                     LatexView(latex = segment.content, isBlock = false)
+                }
+                is ContentSegment.Table -> {
+                    TableView(headers = segment.headers, rows = segment.rows)
                 }
             }
         }
@@ -332,6 +337,7 @@ sealed class ContentSegment {
     data class CodeBlock(val code: String, val language: String?) : ContentSegment()
     data class LatexBlock(val content: String) : ContentSegment()
     data class LatexInline(val content: String) : ContentSegment()
+    data class Table(val headers: List<String>, val rows: List<List<String>>) : ContentSegment()
 }
 
 // Parse content into segments
@@ -414,6 +420,24 @@ private fun parseContent(text: String): List<ContentSegment> {
             segments.add(ContentSegment.LatexBlock(latexLines.joinToString("\n").trim()))
             i++
             continue
+        }
+
+        // Table detection (line starts with | and contains |)
+        if (trimmedLine.startsWith("|") && trimmedLine.contains("|")) {
+            val tableLines = mutableListOf<String>()
+            while (i < lines.size && lines[i].trim().let { it.startsWith("|") || it.contains("|---") || it.contains("| ---") }) {
+                tableLines.add(lines[i].trim())
+                i++
+            }
+            if (tableLines.size >= 2) {
+                val table = parseTable(tableLines)
+                if (table != null) {
+                    segments.add(table)
+                    continue
+                }
+            }
+            // If not a valid table, treat as text
+            i -= tableLines.size
         }
 
         // Header # ## ### etc.
@@ -845,4 +869,119 @@ private fun toSuperscript(text: String): String {
         '+' to '⁺', '-' to '⁻', '=' to '⁼', '(' to '⁽', ')' to '⁾'
     )
     return text.map { superscriptMap[it.lowercaseChar()] ?: it }.joinToString("")
+}
+
+// Parse markdown table
+private fun parseTable(lines: List<String>): ContentSegment.Table? {
+    if (lines.size < 2) return null
+
+    // Parse cells from a table row
+    fun parseRow(line: String): List<String> {
+        return line.trim()
+            .removePrefix("|")
+            .removeSuffix("|")
+            .split("|")
+            .map { it.trim() }
+    }
+
+    // Check if line is a separator (|---|---|)
+    fun isSeparator(line: String): Boolean {
+        val cells = parseRow(line)
+        return cells.all { cell ->
+            cell.replace("-", "").replace(":", "").isBlank()
+        }
+    }
+
+    // First line should be headers
+    val headers = parseRow(lines[0])
+    if (headers.isEmpty()) return null
+
+    // Second line should be separator
+    if (lines.size < 2 || !isSeparator(lines[1])) return null
+
+    // Rest are data rows
+    val rows = lines.drop(2).map { parseRow(it) }
+
+    return ContentSegment.Table(headers, rows)
+}
+
+// Table rendering
+@Composable
+fun TableView(
+    headers: List<String>,
+    rows: List<List<String>>,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = DarkCard,
+        border = androidx.compose.foundation.BorderStroke(1.dp, NeonCyan.copy(alpha = 0.3f))
+    ) {
+        Column {
+            // Header row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(DarkSurfaceVariant)
+                    .padding(8.dp)
+            ) {
+                headers.forEachIndexed { index, header ->
+                    Text(
+                        text = header,
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = NeonCyan,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (index < headers.size - 1) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                }
+            }
+
+            // Divider
+            HorizontalDivider(color = NeonCyan.copy(alpha = 0.3f), thickness = 1.dp)
+
+            // Data rows
+            rows.forEachIndexed { rowIndex, row ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            if (rowIndex % 2 == 0) DarkCard
+                            else DarkCard.copy(alpha = 0.7f)
+                        )
+                        .padding(8.dp)
+                ) {
+                    row.forEachIndexed { cellIndex, cell ->
+                        Text(
+                            text = cell,
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextPrimary
+                        )
+                        if (cellIndex < row.size - 1) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+                    }
+                    // Fill empty cells if row has fewer columns than headers
+                    repeat(headers.size - row.size) {
+                        Text(
+                            text = "",
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextPrimary
+                        )
+                    }
+                }
+
+                if (rowIndex < rows.size - 1) {
+                    HorizontalDivider(color = CyberGray500.copy(alpha = 0.3f), thickness = 0.5.dp)
+                }
+            }
+        }
+    }
 }

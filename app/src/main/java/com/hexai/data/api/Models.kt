@@ -79,6 +79,31 @@ data class Usage(
     val totalTokens: Int?
 )
 
+// Non-streaming chat completion response
+data class ChatCompletionResponse(
+    val id: String?,
+    val `object`: String?,
+    val created: Long?,
+    val model: String?,
+    val choices: List<CompletionChoice>?,
+    val usage: Usage?,
+    val timings: Timings?
+)
+
+data class CompletionChoice(
+    val index: Int?,
+    val message: CompletionMessage?,
+    @SerializedName("finish_reason")
+    val finishReason: String?
+)
+
+data class CompletionMessage(
+    val role: String?,
+    val content: String?,
+    @SerializedName("reasoning_content")
+    val reasoningContent: String?
+)
+
 // Models list response
 data class ModelsResponse(
     val `object`: String?,
@@ -125,7 +150,8 @@ data class ModelSettings(
     val frequencyPenalty: Float = 0f,
     val presencePenalty: Float = 0f,
     val systemPrompt: String = "",
-    val reasoningEffort: ReasoningEffort = ReasoningEffort.MEDIUM
+    val reasoningEffort: ReasoningEffort = ReasoningEffort.MEDIUM,
+    val useStreaming: Boolean = true // false = bulk/non-streaming mode
 )
 
 enum class ReasoningEffort(val value: String) {

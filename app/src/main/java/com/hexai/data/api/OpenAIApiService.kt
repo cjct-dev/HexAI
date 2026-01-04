@@ -207,6 +207,55 @@ class StreamingApiClient(
             }
         }
     }.flowOn(Dispatchers.IO)
+
+    /**
+     * Non-streaming chat completion for unstable network conditions.
+     * Returns the complete response in one call.
+     */
+    suspend fun chatCompletion(request: ChatCompletionRequest): Result<ChatCompletionResponse> = withContext(Dispatchers.IO) {
+        val normalizedUrl = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
+        val url = "${normalizedUrl}v1/chat/completions"
+
+        // Force stream = false
+        val nonStreamingRequest = request.copy(stream = false)
+        val jsonBody = gson.toJson(nonStreamingRequest)
+        val requestBody = jsonBody.toRequestBody("application/json".toMediaType())
+
+        val httpRequest = Request.Builder()
+            .url(url)
+            .post(requestBody)
+            .apply {
+                if (!apiKey.isNullOrBlank()) {
+                    addHeader("Authorization", "Bearer $apiKey")
+                }
+                addHeader("Content-Type", "application/json")
+            }
+            .build()
+
+        try {
+            val response = client.newCall(httpRequest).execute()
+
+            if (!response.isSuccessful) {
+                val errorBody = response.body?.string() ?: "Unknown error"
+                response.close()
+                return@withContext Result.failure(Exception("HTTP ${response.code}: $errorBody"))
+            }
+
+            val body = response.body?.string()
+            response.close()
+
+            if (body == null) {
+                return@withContext Result.failure(Exception("Empty response body"))
+            }
+
+            val completionResponse = gson.fromJson(body, ChatCompletionResponse::class.java)
+            Result.success(completionResponse)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 }
 
 sealed class StreamEvent {

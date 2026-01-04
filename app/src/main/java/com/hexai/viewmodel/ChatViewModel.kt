@@ -325,85 +325,150 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
 
         streamingJob = viewModelScope.launch {
-            try {
-                repository.streamChat(
-                    model = config.selectedModel,
-                    messages = chatMessages,
-                    settings = _modelSettings.value
-                ).catch { e ->
-                    // Handle flow errors (but not CancellationException)
-                    if (e !is CancellationException) {
-                        emit(StreamEvent.Error(e.message ?: "Unknown error"))
+            val settings = _modelSettings.value
+
+            if (settings.useStreaming) {
+                // Streaming mode
+                try {
+                    repository.streamChat(
+                        model = config.selectedModel,
+                        messages = chatMessages,
+                        settings = settings
+                    ).catch { e ->
+                        // Handle flow errors (but not CancellationException)
+                        if (e !is CancellationException) {
+                            emit(StreamEvent.Error(e.message ?: "Unknown error"))
+                        }
+                    }.collect { event ->
+                        when (event) {
+                            is StreamEvent.Started -> {
+                                // Stream started
+                            }
+
+                            is StreamEvent.Content -> {
+                                tokenCount++
+                                _currentContent.update { it + event.text }
+                                updateStreamingMessage()
+                            }
+
+                            is StreamEvent.Reasoning -> {
+                                _currentThinking.update { it + event.text }
+                                updateStreamingMessage()
+                            }
+
+                            is StreamEvent.Usage -> {
+                                val elapsed = System.currentTimeMillis() - streamStartTime
+                                val tokensPerSec = if (elapsed > 0) {
+                                    (event.usage.completionTokens ?: tokenCount).toFloat() / (elapsed / 1000f)
+                                } else 0f
+
+                                _inferenceStats.update {
+                                    it.copy(
+                                        promptTokens = event.usage.promptTokens ?: 0,
+                                        completionTokens = event.usage.completionTokens ?: 0,
+                                        totalTokens = event.usage.totalTokens ?: 0,
+                                        tokensPerSecond = tokensPerSec
+                                    )
+                                }
+                            }
+
+                            is StreamEvent.Timings -> {
+                                // llama-serve timings - update inference stats
+                                _inferenceStats.update {
+                                    it.copy(
+                                        promptTokens = event.timings.promptN ?: it.promptTokens,
+                                        completionTokens = event.timings.predictedN ?: it.completionTokens,
+                                        totalTokens = (event.timings.promptN ?: 0) + (event.timings.predictedN ?: 0),
+                                        tokensPerSecond = event.timings.predictedPerSecond ?: it.tokensPerSecond
+                                    )
+                                }
+                            }
+
+                            is StreamEvent.Done -> {
+                                _inferenceStats.update {
+                                    it.copy(
+                                        timeToFirstToken = event.timeToFirstToken,
+                                        totalTime = event.totalTime
+                                    )
+                                }
+                                finalizeMessage()
+                            }
+
+                            is StreamEvent.Error -> {
+                                _error.value = event.message
+                                finalizeMessage()
+                            }
+                        }
                     }
-                }.collect { event ->
-                    when (event) {
-                        is StreamEvent.Started -> {
-                            // Stream started
-                        }
-
-                        is StreamEvent.Content -> {
-                            tokenCount++
-                            _currentContent.update { it + event.text }
-                            updateStreamingMessage()
-                        }
-
-                        is StreamEvent.Reasoning -> {
-                            _currentThinking.update { it + event.text }
-                            updateStreamingMessage()
-                        }
-
-                        is StreamEvent.Usage -> {
-                            val elapsed = System.currentTimeMillis() - streamStartTime
-                            val tokensPerSec = if (elapsed > 0) {
-                                (event.usage.completionTokens ?: tokenCount).toFloat() / (elapsed / 1000f)
-                            } else 0f
-
-                            _inferenceStats.update {
-                                it.copy(
-                                    promptTokens = event.usage.promptTokens ?: 0,
-                                    completionTokens = event.usage.completionTokens ?: 0,
-                                    totalTokens = event.usage.totalTokens ?: 0,
-                                    tokensPerSecond = tokensPerSec
-                                )
-                            }
-                        }
-
-                        is StreamEvent.Timings -> {
-                            // llama-serve timings - update inference stats
-                            _inferenceStats.update {
-                                it.copy(
-                                    promptTokens = event.timings.promptN ?: it.promptTokens,
-                                    completionTokens = event.timings.predictedN ?: it.completionTokens,
-                                    totalTokens = (event.timings.promptN ?: 0) + (event.timings.predictedN ?: 0),
-                                    tokensPerSecond = event.timings.predictedPerSecond ?: it.tokensPerSecond
-                                )
-                            }
-                        }
-
-                        is StreamEvent.Done -> {
-                            _inferenceStats.update {
-                                it.copy(
-                                    timeToFirstToken = event.timeToFirstToken,
-                                    totalTime = event.totalTime
-                                )
-                            }
-                            finalizeMessage()
-                        }
-
-                        is StreamEvent.Error -> {
-                            _error.value = event.message
-                            finalizeMessage()
-                        }
-                    }
+                } catch (e: CancellationException) {
+                    // Job was cancelled (user cancelled, app backgrounded, etc.)
+                    // Finalize message with whatever content we have, but don't show error
+                    finalizeMessage()
+                    throw e // Re-throw to properly cancel
+                } catch (e: Exception) {
+                    _error.value = e.message ?: "Unknown error"
+                    finalizeMessage()
                 }
-            } catch (e: CancellationException) {
-                // Job was cancelled (user cancelled, app backgrounded, etc.)
-                // Finalize message with whatever content we have, but don't show error
-                finalizeMessage()
-                throw e // Re-throw to properly cancel
-            } catch (e: Exception) {
-                _error.value = e.message ?: "Unknown error"
-                finalizeMessage()
+            } else {
+                // Non-streaming (bulk) mode - for unstable networks
+                try {
+                    val result = repository.bulkChat(
+                        model = config.selectedModel,
+                        messages = chatMessages,
+                        settings = settings
+                    )
+
+                    result.fold(
+                        onSuccess = { response ->
+                            val totalTime = System.currentTimeMillis() - streamStartTime
+                            val choice = response.choices?.firstOrNull()
+                            val content = choice?.message?.content ?: ""
+                            val reasoning = choice?.message?.reasoningContent
+
+                            _currentContent.value = content
+                            _currentThinking.value = reasoning ?: ""
+
+                            // Update stats from response
+                            response.usage?.let { usage ->
+                                val tokensPerSec = if (totalTime > 0) {
+                                    (usage.completionTokens ?: 0).toFloat() / (totalTime / 1000f)
+                                } else 0f
+
+                                _inferenceStats.value = InferenceStats(
+                                    promptTokens = usage.promptTokens ?: 0,
+                                    completionTokens = usage.completionTokens ?: 0,
+                                    totalTokens = usage.totalTokens ?: 0,
+                                    tokensPerSecond = tokensPerSec,
+                                    totalTime = totalTime
+                                )
+                            }
+
+                            // llama-serve timings
+                            response.timings?.let { timings ->
+                                _inferenceStats.update {
+                                    it.copy(
+                                        promptTokens = timings.promptN ?: it.promptTokens,
+                                        completionTokens = timings.predictedN ?: it.completionTokens,
+                                        totalTokens = (timings.promptN ?: 0) + (timings.predictedN ?: 0),
+                                        tokensPerSecond = timings.predictedPerSecond ?: it.tokensPerSecond
+                                    )
+                                }
+                            }
+
+                            finalizeMessage()
+                        },
+                        onFailure = { e ->
+                            _error.value = e.message ?: "Unknown error"
+                            finalizeMessage()
+                        }
+                    )
+                } catch (e: CancellationException) {
+                    finalizeMessage()
+                    throw e
+                } catch (e: Exception) {
+                    _error.value = e.message ?: "Unknown error"
+                    finalizeMessage()
+                }
             }
         }
     }
@@ -518,6 +583,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateReasoningEffort(effort: ReasoningEffort) {
         _modelSettings.update { it.copy(reasoningEffort = effort) }
+        saveModelSettings()
+    }
+
+    fun updateUseStreaming(useStreaming: Boolean) {
+        _modelSettings.update { it.copy(useStreaming = useStreaming) }
         saveModelSettings()
     }
 

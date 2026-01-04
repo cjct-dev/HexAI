@@ -128,6 +128,11 @@ fun SettingsScreen(
                         onReasoningEffortChange = { viewModel.updateReasoningEffort(it) }
                     )
 
+                    ResponseModeSection(
+                        useStreaming = modelSettings.useStreaming,
+                        onStreamingChange = { viewModel.updateUseStreaming(it) }
+                    )
+
                     SystemPromptSection(
                         systemPrompt = modelSettings.systemPrompt,
                         onSystemPromptChange = { viewModel.updateSystemPrompt(it) }
@@ -157,26 +162,43 @@ private fun ConnectionSection(
 ) {
     CyberpunkCard(accentColor = if (isConnected) HexGreen else HexGreen) {
         // Header
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(bottom = 16.dp)
-        ) {
-            Icon(
-                imageVector = if (isConnected) Icons.Default.CloudDone else Icons.Default.Cloud,
-                contentDescription = null,
-                tint = if (isConnected) HexGreen else HexGrey300,
-                modifier = Modifier.size(24.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "SERVER CONNECTION",
-                style = MaterialTheme.typography.titleSmall,
-                color = if (isConnected) HexGreen else HexGrey200,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.weight(1f))
+        Column(modifier = Modifier.padding(bottom = 16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = if (isConnected) Icons.Default.CloudDone else Icons.Default.Cloud,
+                    contentDescription = null,
+                    tint = if (isConnected) HexGreen else HexGrey300,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "SERVER CONNECTION",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = if (isConnected) HexGreen else HexGrey200,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            // Connection status badges on separate line
             if (isConnected) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Connection status
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = HexGreen.copy(alpha = 0.2f)
+                    ) {
+                        Text(
+                            text = "CONNECTED",
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = HexGreen
+                        )
+                    }
+
                     // Encryption status indicator
                     Surface(
                         shape = RoundedCornerShape(4.dp),
@@ -200,7 +222,7 @@ private fun ConnectionSection(
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.width(6.dp))
+
                     // Ping latency
                     pingLatency?.let { latency ->
                         Surface(
@@ -214,18 +236,6 @@ private fun ConnectionSection(
                                 color = HexGrey200
                             )
                         }
-                        Spacer(modifier = Modifier.width(6.dp))
-                    }
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = HexGreen.copy(alpha = 0.2f)
-                    ) {
-                        Text(
-                            text = "CONNECTED",
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = HexGreen
-                        )
                     }
                 }
             }
@@ -725,6 +735,120 @@ private fun ReasoningSection(
                         color = if (isSelected) NeonBlue else TextSecondary,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ResponseModeSection(
+    useStreaming: Boolean,
+    onStreamingChange: (Boolean) -> Unit
+) {
+    CyberpunkCard(accentColor = NeonOrange) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(bottom = 16.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Speed,
+                contentDescription = null,
+                tint = NeonOrange,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "RESPONSE MODE",
+                style = MaterialTheme.typography.titleSmall,
+                color = NeonOrange,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        NeonDivider(color = NeonOrange)
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = "Choose how responses are delivered:",
+            style = MaterialTheme.typography.bodySmall,
+            color = TextMuted,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Streaming option
+            Surface(
+                onClick = { onStreamingChange(true) },
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(8.dp),
+                color = if (useStreaming) NeonOrange.copy(alpha = 0.2f) else DarkSurfaceVariant,
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    if (useStreaming) NeonOrange else CyberGray400
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Stream,
+                        contentDescription = null,
+                        tint = if (useStreaming) NeonOrange else TextSecondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "STREAM",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (useStreaming) NeonOrange else TextSecondary,
+                        fontWeight = if (useStreaming) FontWeight.Bold else FontWeight.Normal
+                    )
+                    Text(
+                        text = "Real-time",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextMuted
+                    )
+                }
+            }
+
+            // Bulk option
+            Surface(
+                onClick = { onStreamingChange(false) },
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(8.dp),
+                color = if (!useStreaming) NeonOrange.copy(alpha = 0.2f) else DarkSurfaceVariant,
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    if (!useStreaming) NeonOrange else CyberGray400
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Download,
+                        contentDescription = null,
+                        tint = if (!useStreaming) NeonOrange else TextSecondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "BULK",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (!useStreaming) NeonOrange else TextSecondary,
+                        fontWeight = if (!useStreaming) FontWeight.Bold else FontWeight.Normal
+                    )
+                    Text(
+                        text = "Unstable network",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextMuted
                     )
                 }
             }

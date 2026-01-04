@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,6 +52,30 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
+
+    // Track if user has manually scrolled away from bottom
+    var userHasScrolled by remember { mutableStateOf(false) }
+    val isAtBottom by remember {
+        derivedStateOf {
+            val lastVisibleItem = listState.layoutInfo.visibleItemsInfo.lastOrNull()
+            val totalItems = listState.layoutInfo.totalItemsCount
+            lastVisibleItem == null || lastVisibleItem.index >= totalItems - 1
+        }
+    }
+
+    // Reset userHasScrolled when at bottom or when new message is sent
+    LaunchedEffect(isAtBottom) {
+        if (isAtBottom) {
+            userHasScrolled = false
+        }
+    }
+
+    // Detect manual scrolling
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress && !isAtBottom) {
+            userHasScrolled = true
+        }
+    }
 
     // Export launcher
     val exportLauncher = rememberLauncherForActivityResult(
@@ -89,10 +114,20 @@ fun ChatScreen(
         }
     }
 
-    // Auto-scroll to bottom when new messages arrive
-    LaunchedEffect(messages.size, messages.lastOrNull()?.content) {
+    // Auto-scroll to bottom only if user hasn't manually scrolled away
+    // Also scroll when a NEW message is added (not just content updates)
+    val messageCount = messages.size
+    var previousMessageCount by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(messageCount, messages.lastOrNull()?.content) {
         if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+            val isNewMessage = messageCount > previousMessageCount
+            previousMessageCount = messageCount
+
+            // Always scroll for new messages, or if user hasn't scrolled away during streaming
+            if (isNewMessage || !userHasScrolled) {
+                listState.animateScrollToItem(messages.size - 1)
+            }
         }
     }
 
