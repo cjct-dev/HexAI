@@ -1,6 +1,8 @@
 package com.hexai.ui.screens
 
+import android.app.Activity
 import android.content.Context
+import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -73,6 +75,17 @@ fun ChatScreen(
                 val content = inputStream.bufferedReader().readText()
                 viewModel.importFromMarkdown(content)
             }
+        }
+    }
+
+    // Keep screen on while streaming to prevent sleep
+    val activity = context as? Activity
+    DisposableEffect(isStreaming) {
+        if (isStreaming) {
+            activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose {
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
     }
 
