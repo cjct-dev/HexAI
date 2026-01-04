@@ -3,6 +3,7 @@ package com.hexai.data.api
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
+import okhttp3.Response as OkHttpResponse
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import retrofit2.Response
@@ -11,8 +12,14 @@ import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
 import retrofit2.http.Header
 import java.util.concurrent.TimeUnit
+import java.io.IOException
+import java.net.SocketException
 import com.google.gson.Gson
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -75,14 +82,18 @@ class StreamingApiClient(
             }
             .build()
 
-        var startTime = System.currentTimeMillis()
+        val startTime = System.currentTimeMillis()
         var firstTokenTime: Long? = null
         var tokenCount = 0
+        var response: okhttp3.Response? = null
 
         try {
-            val response = withContext(Dispatchers.IO) {
+            response = withContext(Dispatchers.IO) {
                 client.newCall(httpRequest).execute()
             }
+
+            // Check if cancelled before proceeding
+            currentCoroutineContext().ensureActive()
 
             if (!response.isSuccessful) {
                 val errorBody = response.body?.string() ?: "Unknown error"
@@ -97,12 +108,13 @@ class StreamingApiClient(
                 return@flow
             }
 
-            val buffer = StringBuilder()
-
-            while (!source.exhausted()) {
+            while (currentCoroutineContext().isActive && !source.exhausted()) {
                 val line = withContext(Dispatchers.IO) {
                     source.readUtf8Line()
                 } ?: break
+
+                // Check cancellation after each line read
+                currentCoroutineContext().ensureActive()
 
                 if (line.startsWith("data: ")) {
                     val data = line.removePrefix("data: ").trim()
@@ -160,10 +172,39 @@ class StreamingApiClient(
                 }
             }
 
-            response.close()
-
+        } catch (e: CancellationException) {
+            // Coroutine was cancelled (user cancelled, app backgrounded, etc.)
+            // Don't emit error, just let the flow complete gracefully
+            throw e // Re-throw to properly cancel the coroutine
+        } catch (e: SocketException) {
+            // Connection was closed (app backgrounded, network change, etc.)
+            val message = when {
+                e.message?.contains("abort", ignoreCase = true) == true ->
+                    "Connection interrupted (app may have been backgrounded)"
+                e.message?.contains("reset", ignoreCase = true) == true ->
+                    "Connection reset by server"
+                else -> "Connection error: ${e.message}"
+            }
+            emit(StreamEvent.Error(message))
+        } catch (e: IOException) {
+            // Network error - provide user-friendly message
+            val message = when {
+                e.message?.contains("closed", ignoreCase = true) == true ->
+                    "Connection closed unexpectedly"
+                e.message?.contains("timeout", ignoreCase = true) == true ->
+                    "Connection timed out"
+                else -> "Network error: ${e.message}"
+            }
+            emit(StreamEvent.Error(message))
         } catch (e: Exception) {
             emit(StreamEvent.Error(e.message ?: "Unknown error"))
+        } finally {
+            // Always close the response to free resources
+            try {
+                response?.close()
+            } catch (e: Exception) {
+                // Ignore close errors
+            }
         }
     }.flowOn(Dispatchers.IO)
 }

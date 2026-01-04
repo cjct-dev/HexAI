@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.hexai.data.api.*
 import com.hexai.data.preferences.SettingsDataStore
 import com.hexai.data.repository.ChatRepository
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -177,16 +178,25 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private fun startHealthCheck() {
         healthCheckJob?.cancel()
         healthCheckJob = viewModelScope.launch {
-            while (_isConnected.value) {
-                hexApiClient?.checkHealth()?.fold(
-                    onSuccess = { latency ->
-                        _pingLatency.value = latency
-                    },
-                    onFailure = {
+            try {
+                while (_isConnected.value) {
+                    try {
+                        hexApiClient?.checkHealth()?.fold(
+                            onSuccess = { latency ->
+                                _pingLatency.value = latency
+                            },
+                            onFailure = {
+                                _pingLatency.value = null
+                            }
+                        )
+                    } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                         _pingLatency.value = null
                     }
-                )
-                delay(5000) // Check every 5 seconds
+                    delay(5000) // Check every 5 seconds
+                }
+            } catch (e: CancellationException) {
+                // Health check cancelled, that's fine
             }
         }
     }
@@ -320,7 +330,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     model = config.selectedModel,
                     messages = chatMessages,
                     settings = _modelSettings.value
-                ).collect { event ->
+                ).catch { e ->
+                    // Handle flow errors (but not CancellationException)
+                    if (e !is CancellationException) {
+                        emit(StreamEvent.Error(e.message ?: "Unknown error"))
+                    }
+                }.collect { event ->
                     when (event) {
                         is StreamEvent.Started -> {
                             // Stream started
@@ -381,6 +396,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
                 }
+            } catch (e: CancellationException) {
+                // Job was cancelled (user cancelled, app backgrounded, etc.)
+                // Finalize message with whatever content we have, but don't show error
+                finalizeMessage()
+                throw e // Re-throw to properly cancel
             } catch (e: Exception) {
                 _error.value = e.message ?: "Unknown error"
                 finalizeMessage()
