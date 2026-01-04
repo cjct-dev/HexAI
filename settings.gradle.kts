@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "CyberChat"
+rootProject.name = "HexAI"
 include(":app")

@@ -71,7 +71,3 @@ fun HexAITheme(
         content = content
     )
 }
-
-// Legacy alias
-@Composable
-fun CyberChatTheme(content: @Composable () -> Unit) = HexAITheme(content)

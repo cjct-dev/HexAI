@@ -19,8 +19,8 @@
 }
 
 # Keep all API model classes with their fields
--keep class com.cyberchat.data.api.** { *; }
--keepclassmembers class com.cyberchat.data.api.** { *; }
+-keep class com.hexai.data.api.** { *; }
+-keepclassmembers class com.hexai.data.api.** { *; }
 
 # Keep generic type information for Gson
 -keep class * extends com.google.gson.TypeAdapter
